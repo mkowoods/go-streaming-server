@@ -1,0 +1,105 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Simple Chat</title>
+
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/materialize/0.97.8/css/materialize.min.css">
+    <link rel="stylesheet" href="https://fonts.googleapis.com/icon?family=Material+Icons">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/emojione/2.2.6/assets/css/emojione.min.css"/>
+    <!-- <link rel="stylesheet" href="/style.css"> -->
+    <style>
+    body {
+        display: flex;
+        min-height: 100vh;
+        flex-direction: column;
+    }
+
+    main {
+        flex: 1 0 auto;
+    }
+
+    #chat-messages {
+        min-height: 10vh;
+        height: 60vh;
+        width: 100%;
+        overflow-y: scroll;
+    }
+    </style>
+</head>
+<body>
+    <header>
+        <nav>
+            <div class="nav-wrapper">
+                <a href="/" class="brand-logo right">Simple Chat</a>
+            </div>
+        </nav>
+    </header>
+    <main id="app">
+        <div class="row">
+            <div class="col s12">
+                <div class="card horizontal">
+                    <div id="chat-messages" class="card-content">
+                    </div>
+                </div>
+            </div>
+        </div>
+        <div class="row" v-if="joined">
+            <div class="input-field col s8">
+                <input type="text" id="message">
+            </div>
+            <div class="input-field col s4">
+                <button class="waves-effect waves-light btn" id="chat-input-send-btn">
+                    <i class="material-icons right">chat</i>
+                    Send
+                </button>
+            </div>
+        </div>
+        <div class="row" v-if="!joined">
+            <div class="input-field col s8">
+                <input type="email" id="email">
+            </div>
+            <div class="input-field col s8">
+                <input type="text" id="username" placeholder="Username">
+            </div>
+            <div class="input-field col s4">
+                <button class="waves-effect waves-light btn">
+                    <i class="material-icons right">done</i>
+                    Join
+                </button>
+            </div>
+        </div>
+    </main>
+    <footer class="page-footer">
+    </footer>
+
+<!-- <script src="https://unpkg.com/vue@2.1.3/dist/vue.min.js"></script> -->
+<script src="https://cdn.jsdelivr.net/emojione/2.2.6/lib/js/emojione.min.js"></script>
+<!-- <script src="https://code.jquery.com/jquery-2.1.1.min.js"></script> -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/crypto-js/3.1.2/rollups/md5.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/materialize/0.97.8/js/materialize.min.js"></script>
+<!-- <script src="/app.js"></script> -->
+<script>
+    const ws  = new WebSocket("ws://" + window.location.host + "/ws");
+    ws.addEventListener('message', (e) => {
+        let msg  = JSON.parse(e.data)
+        let chatContent = `<div class="chip">${msg.username}</div> ${msg.message} </br>`
+        document.getElementById("chat-messages").innerHTML += chatContent
+    })
+
+    document.getElementById("chat-input-send-btn").addEventListener("click", (e) => {
+        const email = document.getElementById("email").value;
+        const username = document.getElementById("username").value;
+        const message = document.getElementById("message").value;
+        console.log("Clicked Send", email, username, message)
+        ws.send(
+            JSON.stringify({
+                email,
+                username,
+                message
+            })
+        )
+    })
+</script>
+</body>
+</html>

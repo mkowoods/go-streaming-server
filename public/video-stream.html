@@ -1,0 +1,108 @@
+<html>
+
+    <head><title>Video Stream</title></head>
+    <body>
+        <div>
+            <button id="show-video">Start Video</button>
+            <video id="live" width="320" height="240" autoplay></video>
+            <canvas width="320" id="canvas" height="240" style="display: inline;"></canvas>
+            <img id="target" style="display: inline;"/>
+            <div id="error-message"></div>
+        </div>
+    </body>
+    <script src="https://webrtc.github.io/adapter/adapter-latest.js"></script>
+    <script>
+        const video = document.getElementById("live")
+        const canvas = document.getElementById("canvas")
+        let timer = null;
+        const ctx = canvas.getContext("2d")
+        
+        var ws = new WebSocket("ws://127.0.0.1:8080/ws_stream");
+
+        ws.onmessage = function (msg) {
+            // console.log(ws, msg)
+            var target = document.getElementById("target");
+            url=window.webkitURL.createObjectURL(msg.data);
+    
+            target.onload = function() {
+                window.webkitURL.revokeObjectURL(url);
+            };
+            target.src = url;
+        }
+
+        function dataURItoBlob(dataURI) {
+            // convert base64/URLEncoded data component to raw binary data held in a string
+            var byteString;
+            if (dataURI.split(',')[0].indexOf('base64') >= 0)
+                byteString = atob(dataURI.split(',')[1]);
+            else
+                byteString = unescape(dataURI.split(',')[1]);
+
+            // separate out the mime component
+            var mimeString = dataURI.split(',')[0].split(':')[1].split(';')[0];
+
+            var ia = new Uint8Array(byteString.length);
+            for (var i = 0; i < byteString.length; i++) {
+                ia[i] = byteString.charCodeAt(i);
+            }
+            return new Blob([ia], {type:mimeString});
+        }
+
+        const constraints = {
+            audio: false,
+            video: true
+        }
+
+        function handleSuccess(stream) {
+            const video = document.querySelector('video');
+            const videoTracks = stream.getVideoTracks();
+            console.log('Got stream with constraints:', constraints);
+            console.log(`Using video device: ${videoTracks[0].label}`);
+            window.stream = stream; // make variable available to browser console
+            video.srcObject = stream;
+        }
+
+
+        function handleError(error) {
+            if (error.name === 'ConstraintNotSatisfiedError') {
+                let v = constraints.video;
+                errorMsg(`The resolution ${v.width.exact}x${v.height.exact} px is not supported by your device.`);
+            } else if (error.name === 'PermissionDeniedError') {
+                errorMsg('Permissions have not been granted to use your camera and ' +
+                'microphone, you need to allow the page access to your devices in ' +
+                'order for the demo to work.');
+            }
+            errorMsg(`getUserMedia error: ${error.name}`, error);
+        }
+
+        function errorMsg(msg, error) {
+            const errorElement = document.querySelector('#error-message');
+            errorElement.innerHTML += `<p>${msg}</p>`;
+            if (typeof error !== 'undefined') {
+                console.error(error);
+            }
+        }
+
+
+        async function init(e) {
+        try {
+            const stream = await navigator.mediaDevices.getUserMedia(constraints);
+            handleSuccess(stream);
+            e.target.disabled = true;
+            timer = setInterval(
+            function () {
+                ctx.drawImage(video, 0, 0, 320, 240);
+                const data = canvas.toDataURL('image/jpeg', 1.0);
+                const newblob = dataURItoBlob(data);
+                ws.send(newblob)
+            }, 200);
+        } catch (e) {
+            handleError(e);
+        }
+        }
+
+        document.querySelector('#show-video').addEventListener('click', e => init(e));
+
+
+    </script>
+</html>
