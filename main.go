@@ -18,13 +18,15 @@ import (
 	"gocv.io/x/gocv"
 )
 
-const BUFFER_SIZE int = 512 * 1024
+const BUFFER_SIZE int = 150 * 1024
 
 //preallocate 512kb of bytes for read
 var readBuffer = make([]byte, BUFFER_SIZE)
 
 var clients = make(map[*websocket.Conn]bool)
 var broadcast = make(chan Message)
+var braodcastVideo = make(chan []byte)
+
 var upgrader = websocket.Upgrader{
 	CheckOrigin: func(r *http.Request) bool {
 		log.Println("request", r)
@@ -32,8 +34,8 @@ var upgrader = websocket.Upgrader{
 	},
 	//Use these parameters to controll buffer allocated to messages
 	// EnableCompression: true,
-	ReadBufferSize:  0,
-	WriteBufferSize: 0,
+	ReadBufferSize:  BUFFER_SIZE,
+	WriteBufferSize: BUFFER_SIZE,
 }
 
 type Message struct {
@@ -66,8 +68,6 @@ func handleConnections(w http.ResponseWriter, r *http.Request) {
 
 	defer ws.Close()
 	clients[ws] = true
-	// ws.WriteMessage(websocket.TextMessage, []byte("Hello World"))
-
 	for {
 		var msg Message
 		err := ws.ReadJSON(&msg)
@@ -82,14 +82,6 @@ func handleConnections(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// func (c *websocket.Conn) readPump() {
-
-// 	defer func() {
-// 		hub.removeWsClient <- c
-// 		c.wsConn.Close()
-// 	}()
-// }
-
 func handleFacePrediction(w http.ResponseWriter, r *http.Request) {
 	ws, err := upgrader.Upgrade(w, r, nil)
 
@@ -97,6 +89,7 @@ func handleFacePrediction(w http.ResponseWriter, r *http.Request) {
 		log.Fatal(err)
 	}
 	defer ws.Close()
+	clients[ws] = true
 
 	//should probably be a global since only needed once per connection
 	log.Println("New Classifer generated")
@@ -107,44 +100,65 @@ func handleFacePrediction(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	blue := color.RGBA{0, 0, 255, 0}
+	framesSinceLastFace := 0
 
 	for {
 		//TODO: need to get the memory overhead under control
 		//https://github.com/gorilla/websocket/issues/134
-		_, data, err := ws.ReadMessage()
+
+		// _, data, err := ws.ReadMessage()
+		_, r, err := ws.NextReader()
+		if err != nil {
+			log.Printf("error: %v", err)
+			delete(clients, ws)
+			break
+		}
+
+		n, err := r.Read(readBuffer)
 		if err != nil {
 			log.Printf("error: %v", err)
 			return
 		}
 
-		img, err := gocv.IMDecode(data, gocv.IMReadColor)
+		log.Println("Read Size", n, len(readBuffer), "Num Clients", len(clients), framesSinceLastFace)
+
+		img, err := gocv.IMDecode(readBuffer[:n], gocv.IMReadColor)
 		if err != nil {
 			log.Printf("error: %v", err)
 			return
 		}
-		defer img.Close()
 
 		if img.Empty() {
 			return
 		}
 
 		rects := classifier.DetectMultiScale(img)
-		// log.Printf("found %d faces\n", len(rects))
-		// log.Println(msgType, len(data), blue)
+		detectedFace := len(rects) > 0
 
-		for _, r := range rects {
-			gocv.Rectangle(&img, r, blue, 3)
+		if detectedFace {
+			framesSinceLastFace = 0
+		} else {
+			framesSinceLastFace++
 		}
 
-		imgWithDetection, err := gocv.IMEncode(".png", img)
-		if err != nil {
-			log.Printf("error: %v", err)
-			return
+		if framesSinceLastFace < 15 {
+			for _, r := range rects {
+				gocv.Rectangle(&img, r, blue, 3)
+			}
+			imgWithDetection, err := gocv.IMEncode(".png", img)
+			if err != nil {
+				log.Printf("error: %v", err)
+				return
+			}
+			braodcastVideo <- imgWithDetection
+			imgWithDetection = nil
 		}
 
-		ws.WriteMessage(websocket.BinaryMessage, imgWithDetection)
+		//clean up data
+		//explicitly remove the image to get rid of a memory leak
+		img.Close()
+		rects = nil
 	}
-
 }
 
 func handleMessages() {
@@ -162,7 +176,21 @@ func handleMessages() {
 				break
 			}
 		}
+	}
+}
 
+func handleBroadcastVideo() {
+	for {
+		img := <-braodcastVideo
+		for client := range clients {
+			err := client.WriteMessage(websocket.BinaryMessage, img)
+			if err != nil {
+				log.Printf("error: %v", err)
+				client.Close()
+				delete(clients, client)
+				break
+			}
+		}
 	}
 }
 
@@ -176,6 +204,7 @@ func main() {
 	http.HandleFunc("/ws_stream", handleFacePrediction)
 
 	go handleMessages()
+	go handleBroadcastVideo()
 
 	log.Println("http server started on :8000")
 	err := http.ListenAndServe(":8080", nil)

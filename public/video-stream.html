@@ -1,33 +1,74 @@
 <html>
 
-    <head><title>Video Stream</title></head>
+    <head>
+        <title>Video Stream</title>
+        <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/semantic-ui@2.4.0/dist/semantic.min.css">
+        <style>
+            .screen {
+                border: 2px solid#00B5AD;
+                border-radius: 10px               
+            }
+
+            .screen-inactive {
+                border-color: red
+            }
+        </style>
+        
+    </head>
     <body>
-        <div>
-            <button id="show-video">Start Video</button>
-            <video id="live" width="320" height="240" autoplay></video>
-            <canvas width="320" id="canvas" height="240" style="display: inline;"></canvas>
-            <img id="target" style="display: inline;"/>
-            <div id="error-message"></div>
+        <div class="ui container" style="margin-top: 20px">
+            <div class="ui grid">
+                    <div class="row">
+                        <div class="four wide column">
+                            <button id="show-video" class="ui primary button">Start Stream</button>
+                            <!-- <button id="test">Test Socket</button>         -->
+                        </div>            
+                        <div class="four wide column">
+                            <div id="message">Waiting</div>
+                            <div id="error-message"></div>        
+                        </div>            
+    
+                    </div>
+                    <div class="row">
+                        <div class="five wide column">
+                            <video class="screen" id="live" width="320" height="240" autoplay></video>
+                        </div>
+                        <div class="five wide column">
+                            <canvas class="screen" width="320" id="canvas" height="240" style="display: inline;"></canvas>
+                        </div>
+                        <div class="five wide column">
+                            <img class="screen screen-inactive" id="target" width="320" height="240"/>
+                        </div>
+                    </div>
+                </div>
+            <div>   
         </div>
     </body>
+    <script src="https://cdn.jsdelivr.net/npm/semantic-ui@2.4.0/dist/semantic.min.js"></script>
     <script src="https://webrtc.github.io/adapter/adapter-latest.js"></script>
     <script>
         const video = document.getElementById("live")
         const canvas = document.getElementById("canvas")
+        const target = document.getElementById("target")
+        // let STREAMING_BOOL = false
+        let stream = null;
         let timer = null;
         const ctx = canvas.getContext("2d")
-        
         var ws = new WebSocket("ws://127.0.0.1:8080/ws_stream");
-
+        let lastReceivedMessage = 0;
+        
         ws.onmessage = function (msg) {
             // console.log(ws, msg)
             var target = document.getElementById("target");
-            url=window.webkitURL.createObjectURL(msg.data);
+            url=window.URL.createObjectURL(msg.data);
     
             target.onload = function() {
-                window.webkitURL.revokeObjectURL(url);
+                window.URL.revokeObjectURL(url);
             };
             target.src = url;
+
+            lastReceivedMessage = Date.now()
+
         }
 
         function dataURItoBlob(dataURI) {
@@ -83,25 +124,49 @@
             }
         }
 
-
         async function init(e) {
-        try {
-            const stream = await navigator.mediaDevices.getUserMedia(constraints);
-            handleSuccess(stream);
-            e.target.disabled = true;
-            timer = setInterval(
-            function () {
-                ctx.drawImage(video, 0, 0, 320, 240);
-                const data = canvas.toDataURL('image/jpeg', 1.0);
-                const newblob = dataURItoBlob(data);
-                ws.send(newblob)
-            }, 200);
-        } catch (e) {
-            handleError(e);
-        }
+            console.log(stream)
+            if(stream){
+                console.log("closing", stream)
+                stream.getTracks()[0].stop();
+                clearInterval(timer);
+                stream = null;
+                e.target.innerHTML = "Start Stream"
+                return
+            }
+
+            try {
+                stream = await navigator.mediaDevices.getUserMedia(constraints);
+                handleSuccess(stream);
+                e.target.innerHTML = "Stop Stream"
+                timer && clearInterval(timer)
+                timer = setInterval(
+                function () {
+                    ctx.drawImage(video, 0, 0, 320, 240);
+                    const data = canvas.toDataURL('image/jpeg', 1.0);
+                    const newblob = dataURItoBlob(data);
+                    if(ws.readyState === ws.OPEN){
+                        ws.send(newblob)
+                    }
+
+                    if((Date.now() - lastReceivedMessage) > 1000) {
+                        document.getElementById("message").innerHTML = "No Face Detected"
+                        target.classList.add("screen-inactive")
+                    } else {
+                        document.getElementById("message").innerHTML = "Face Detected"
+                        target.classList.remove("screen-inactive")
+                    }
+
+                }, 100);
+            } catch (e) {
+                handleError(e);
+            }
+
         }
 
         document.querySelector('#show-video').addEventListener('click', e => init(e));
+        // document.querySelector('#test').addEventListener('click', e => ws.send("test"));
+        
 
 
     </script>
