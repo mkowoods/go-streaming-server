@@ -20,7 +20,6 @@ import (
 
 const BUFFER_SIZE int = 150 * 1024
 
-//preallocate 512kb of bytes for read
 var readBuffer = make([]byte, BUFFER_SIZE)
 
 var clients = make(map[*websocket.Conn]bool)
@@ -32,8 +31,6 @@ var upgrader = websocket.Upgrader{
 		log.Println("request", r)
 		return true
 	},
-	//Use these parameters to controll buffer allocated to messages
-	// EnableCompression: true,
 	ReadBufferSize:  BUFFER_SIZE,
 	WriteBufferSize: BUFFER_SIZE,
 }
@@ -55,8 +52,6 @@ func playVideoHandler(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Accept-Ranges", "bytes")
 	w.Header().Set("Content-Type", "video/mp4")
 	w.Header().Set("Content-Length", "5510872")
-	// w.Header().Set("Last-Modified", "Wed, 29 Nov 2017 17:10:44 GMT")
-	// w.WriteHeader(206)
 	w.Write(buf.Bytes())
 }
 
@@ -154,8 +149,6 @@ func handleFacePrediction(w http.ResponseWriter, r *http.Request) {
 			imgWithDetection = nil
 		}
 
-		//clean up data
-		//explicitly remove the image to get rid of a memory leak
 		img.Close()
 		rects = nil
 	}
@@ -196,9 +189,9 @@ func handleBroadcastVideo() {
 
 func main() {
 	assets := http.FileServer(http.Dir("./public"))
-	// defer profile.Start(profile.MemProfile).Stop()
 
 	http.Handle("/", assets)
+	http.Handle("/video-stream", assets)
 	http.HandleFunc("/playVideo", playVideoHandler)
 	http.HandleFunc("/ws", handleConnections)
 	http.HandleFunc("/ws_stream", handleFacePrediction)
@@ -206,7 +199,7 @@ func main() {
 	go handleMessages()
 	go handleBroadcastVideo()
 
-	log.Println("http server started on :8000")
+	log.Println("http server started on :8080")
 	err := http.ListenAndServe(":8080", nil)
 	if err != nil {
 		log.Fatal("ListenAndServer", err)
